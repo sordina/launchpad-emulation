@@ -9,6 +9,13 @@ import Data.Map hiding (filter, map)
 import Prelude hiding (lookup, null)
 
 import Common
+import Emulation (runGUI)
+
+mapChan :: (a -> a1) -> Chan a -> IO (Chan a1)
+mapChan f i = do
+  o <- newChan
+  void $ forkIO $ getChanContents i >>= writeList2Chan o . map f
+  return o
 
 main :: IO ()
 main = do
@@ -24,12 +31,16 @@ main = do
 
   state <- newIORef empty
 
+  chanH <- newChan
+  chanI <- mapChan (uncurry encodeEvent) chanH
+
   chanA <- newChan
   chanB <- newChan
-  chanC <- mergeChans [chanA, chanB]
+  chanC <- mergeChans [chanA, chanB, chanI]
   chanD <- dupChan chanC
   chanE <- dupChan chanD
   chanF <- dupChan chanE
+  chanG <- dupChan chanF >>= mapChan decodeEvent
 
   mapM_ forkIO [ processA chanA launchpadSource
                , processB chanB state
@@ -37,6 +48,7 @@ main = do
                , processD chanD state
                , processE chanE audioDestination
                , processF chanF
+               , runGUI chanG chanH
                ]
 
   putStrLn "Hit ENTER to quit..."
@@ -70,18 +82,18 @@ processB_cell previousState coord@(x,y) = if nextState == b then [] else [encode
   neighbourhood = [(mod (x+dx) limx , mod (y+dy) limy) | dx <- [-1..1], dy <- [-1..1]]
 
 processC :: Chan MidiEvent -> Connection -> IO ()
-processC chanC launchpadDestination = mapChan chanC (send launchpadDestination . getMessage)
+processC chanC launchpadDestination = mapChanM_ chanC (send launchpadDestination . getMessage)
 
 processD :: Chan MidiEvent -> IORef State -> IO ()
-processD chanD state = mapChan chanD (updateFromMessage . getMessage)
+processD chanD state = mapChanM_ chanD (updateFromMessage . getMessage)
   where
   updateFromMessage m = modifyIORef state (insert `uncurry` decodeMessage m)
 
 processE :: Chan MidiEvent -> Connection -> IO ()
-processE chanE audioDestination = mapChan chanE (send audioDestination . audify . getMessage)
+processE chanE audioDestination = mapChanM_ chanE (send audioDestination . audify . getMessage)
 
 processF :: Chan MidiEvent -> IO ()
-processF chanF = mapChan chanF print
+processF chanF = mapChanM_ chanF print
 
 -- Helpers
 
@@ -107,11 +119,14 @@ decodeMessage (MidiMessage _ (NoteOn  n _)) = (pos n, True)
 decodeMessage (MidiMessage _ (NoteOff n _)) = (pos n, False)
 decodeMessage _                             = ((0,0), False)
 
+decodeEvent :: MidiEvent -> (Coord,Bool)
+decodeEvent (MidiEvent _ m) = decodeMessage m
+
 oneSplitSecond :: Int
 oneSplitSecond = 10000
 
 lifeDelay :: Int
-lifeDelay = 1000000
+lifeDelay = 300000
 
 -- Life
 --
@@ -133,8 +148,8 @@ mergeChans l = do
   mapM_ (forkIO . (getChanContents >=> writeList2Chan o)) l
   return o
 
-mapChan :: Chan a -> (a -> IO b) -> IO ()
-mapChan chan f = getChanContents chan >>= mapM_ f
+mapChanM_ :: Chan a -> (a -> IO b) -> IO ()
+mapChanM_ chan f = getChanContents chan >>= mapM_ f
 
 audify :: MidiMessage -> MidiMessage
 audify m = message

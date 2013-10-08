@@ -2,6 +2,8 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS -fno-warn-unused-do-bind #-}
 
+module Emulation where
+
 import Prelude hiding (span, div)
 import Control.Concurrent
 import Text.InterpolatedString.Perl6 (q)

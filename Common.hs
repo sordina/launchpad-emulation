@@ -13,4 +13,4 @@ limy :: Int
 limy = 8
 
 coords :: [Coord]
-coords = [(x,y) | x <- [0..limx-1], y <- [0..limy-1]]
+coords = [(x,y) | y <- [0..limx-1], x <- [0..limy-1]]
