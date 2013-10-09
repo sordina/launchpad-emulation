@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS -fno-warn-unused-do-bind #-}
 
@@ -9,6 +8,8 @@ import Control.Concurrent
 import Text.InterpolatedString.Perl6 (q)
 import Graphics.UI.Threepenny hiding (coords, map)
 import Control.Monad.IO.Class
+import Control.Monad
+import Data.IORef
 
 import Common
 
@@ -18,12 +19,16 @@ css = [q|
     margin: 0;
     padding: 0;
   }
-  h1 {
+  h1, h2 {
     text-align: center;
   }
+  h2 {
+    height: 50px;
+    font-size: 50px;
+    cursor: pointer;
+  }
   .bar {
-    width: 880px;
-    height: 880px;
+    width: 900px;
     margin: 0 auto;
     padding: 10px 0 0 10px;
   }
@@ -48,24 +53,45 @@ main :: IO ()
 main = do
   chanIn  <- newChan
   chanOut <- newChan
+  pause   <- newIORef False
   forkIO $ getChanContents chanOut >>= writeList2Chan chanIn
-  startGUI defaultConfig (setup chanIn chanOut)
+  startGUI defaultConfig (setup pause chanIn chanOut)
 
 -- Library Entry Point
-runGUI :: Chan Command -> Chan Command -> IO ()
-runGUI chanIn chanOut = startGUI defaultConfig (setup chanIn chanOut)
+runGUI :: IORef Bool -> Chan Command -> Chan Command -> IO ()
+runGUI pause chanIn chanOut = startGUI defaultConfig (setup pause chanIn chanOut)
 
 titleText :: String
 titleText = "Launchpad Emulation"
 
-setup :: Chan Command -> Chan Command -> Window -> IO ()
-setup chanIn chanOut window = do
+setup :: IORef Bool -> Chan Command -> Chan Command -> Window -> IO ()
+setup pause chanIn chanOut window = do
     set title titleText (return window)
     addCSS $ getHead window
-    addH1  $ getBody window
+    addH1 $ getBody window
+    addControls pause chanOut (getBody window)
     cells <- addPad chanOut $ getBody window
     forkIO $ getChanContents chanIn >>= mapM_ (updateCell cells)
     return ()
+
+addControls :: IORef Bool -> Chan Command -> IO Element -> IO ()
+addControls pause chanOut c = do
+  let stopSymbol = " ◼  "
+      playSymbol = " ▶ "
+
+  nextSymbol <- newIORef playSymbol
+  box        <- h2 # set text stopSymbol
+  c #+ [ return box ]
+
+  on click box $ const $ do
+    ns <- readIORef nextSymbol
+    if ns == stopSymbol
+      then writeIORef nextSymbol playSymbol >> writeIORef pause False
+      else writeIORef nextSymbol stopSymbol >> writeIORef pause True
+
+    return box # set text ns -- TODO: Set this on a hook from chan events, rather than manually
+    writeChan chanOut ((8,4),True)
+    putStrLn "Emulator: Pause button hit"
 
 addCSS :: IO Element -> IO Element
 addCSS = append [ mkElement "style" # set text css # set (attr "type") "text/css" ]
@@ -76,7 +102,7 @@ addH1 = append [ h1 #+ [ string titleText ] ]
 addPad :: Chan Command -> IO Element -> IO [(Coord, Element)]
 addPad chanOut c = do
   cells <- mapM (cell chanOut) coords
-  c #+ [ div #. "bar" #+ (map return cells) ]
+  c #+ [ div #. "bar" #+ map return cells ]
   return (zip coords cells)
 
 cell :: Chan Command -> Coord -> IO Element
@@ -105,7 +131,7 @@ flick :: MonadIO m => Bool -> m Element -> m Element
 flick True  = turnOn
 flick False = turnOff
 
-updateCell :: (Eq a, MonadIO m) => [(a, Element)] -> (a, Bool) -> m ()
+updateCell :: (Eq a, Functor f, MonadIO f) => [(a, Element)] -> (a, Bool) -> f ()
 updateCell cells (coord,b) = case lookup coord cells
-  of Just c -> flick b (return c) >> return ()
+  of Just c -> void (flick b (return c))
      _      -> return ()

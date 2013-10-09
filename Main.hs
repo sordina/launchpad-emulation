@@ -30,6 +30,7 @@ main = do
   start launchpadSource
 
   state <- newIORef empty
+  pause <- newIORef False
 
   chanH <- newChan
   chanI <- mapChan (uncurry encodeEvent) chanH
@@ -43,12 +44,12 @@ main = do
   chanG <- dupChan chanF >>= mapChan decodeEvent
 
   mapM_ forkIO [ processA chanA launchpadSource
-               , processB chanB state
+               , processB pause chanB state
                , processC chanC launchpadDestination
                , processD chanD state
                , processE chanE audioDestination
                , processF chanF
-               , runGUI chanG chanH
+               , runGUI pause chanG chanH
                ]
 
   putStrLn "Hit ENTER to quit..."
@@ -66,12 +67,13 @@ processA c s = do
   threadDelay oneSplitSecond
   processA c s
 
-processB :: Chan MidiEvent -> IORef State -> IO ()
-processB chanB state = do
+processB :: IORef Bool -> Chan MidiEvent -> IORef State -> IO ()
+processB pause chanB state = do
+  paused <- readIORef pause
   previousState <- readIORef state
-  mapM_ (writeChan chanB) (coords >>= processB_cell previousState)
+  when (not paused) $ mapM_ (writeChan chanB) (coords >>= processB_cell previousState)
   threadDelay lifeDelay
-  processB chanB state
+  processB pause chanB state
 
 processB_cell :: State -> Coord -> [MidiEvent]
 processB_cell previousState coord@(x,y) = if nextState == b then [] else [encodeEvent coord nextState]
@@ -126,7 +128,7 @@ oneSplitSecond :: Int
 oneSplitSecond = 10000
 
 lifeDelay :: Int
-lifeDelay = 300000
+lifeDelay = 200000
 
 -- Life
 --
