@@ -75,13 +75,13 @@ setup pause chanIn chanOut window = do
     return ()
 
 addControls :: IORef Bool -> Chan Command -> IO Element -> IO ()
-addControls pause chanOut c = do
+addControls pause chanOut parent = do
   let stopSymbol = " ◼  "
       playSymbol = " ▶ "
 
   nextSymbol <- newIORef playSymbol
   box        <- h2 # set text stopSymbol
-  c #+ [ return box ]
+  parent #+ [ return box ]
 
   on click box $ const $ do
     ns <- readIORef nextSymbol
