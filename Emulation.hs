@@ -27,6 +27,13 @@ css = [q|
     font-size: 50px;
     cursor: pointer;
   }
+  input {
+    text-align: center;
+    width: 300px;
+    font-size: 200%;
+    display: block;
+    margin: 1em auto;
+  }
   .bar {
     width: 900px;
     margin: 0 auto;
@@ -51,37 +58,45 @@ type Command = (Coord,Bool)
 -- Self Proxying Test Entry Point
 main :: IO ()
 main = do
-  chanIn  <- newChan
-  chanOut <- newChan
-  pause   <- newIORef False
+  chanIn    <- newChan
+  chanOut   <- newChan
+  pause     <- newIORef False
+  initialFn <- newIORef "21 + x + 8 * y"
   forkIO $ getChanContents chanOut >>= writeList2Chan chanIn
-  startGUI defaultConfig (setup pause chanIn chanOut)
+  startGUI defaultConfig (setup initialFn pause chanIn chanOut)
 
 -- Library Entry Point
-runGUI :: IORef Bool -> Chan Command -> Chan Command -> IO ()
-runGUI pause chanIn chanOut = startGUI defaultConfig (setup pause chanIn chanOut)
+runGUI :: IORef String -> IORef Bool -> Chan Command -> Chan Command -> IO ()
+runGUI initialFn pause chanIn chanOut =
+  startGUI defaultConfig (setup initialFn pause chanIn chanOut)
 
 titleText :: String
 titleText = "Launchpad Emulation"
 
-setup :: IORef Bool -> Chan Command -> Chan Command -> Window -> IO ()
-setup pause chanIn chanOut window = do
+setup :: IORef String -> IORef Bool -> Chan Command -> Chan Command -> Window -> IO ()
+setup initialFn pause chanIn chanOut window = do
     set title titleText (return window)
     addCSS $ getHead window
     addH1 $ getBody window
-    addControls pause chanOut (getBody window)
+    addControls initialFn pause chanOut (getBody window)
     cells <- addPad chanOut $ getBody window
     forkIO $ getChanContents chanIn >>= mapM_ (updateCell cells)
     return ()
 
-addControls :: IORef Bool -> Chan Command -> IO Element -> IO ()
-addControls pause chanOut parent = do
+addControls :: IORef String -> IORef Bool -> Chan Command -> IO Element -> IO ()
+addControls audioFnText pause chanOut parent = do
   let stopSymbol = " ◼  "
       playSymbol = " ▶ "
 
   nextSymbol <- newIORef playSymbol
   box        <- h2 # set text stopSymbol
-  parent #+ [ return box ]
+  initialFn  <- readIORef audioFnText
+  myInput    <- input # set value initialFn
+  parent #+ [ return box, return myInput ]
+
+  on keyup myInput $ const $ do
+    val <- get value myInput
+    writeIORef audioFnText val
 
   on click box $ const $ do
     ns <- readIORef nextSymbol

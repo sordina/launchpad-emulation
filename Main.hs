@@ -10,6 +10,7 @@ import Prelude hiding (lookup, null)
 
 import Common
 import Emulation (runGUI)
+import Algebra   (interpret)
 
 mapChan :: (a -> a1) -> Chan a -> IO (Chan a1)
 mapChan f i = do
@@ -26,6 +27,8 @@ main = do
   launchpadSource      <- openSource      launchpadIn  Nothing
   launchpadDestination <- openDestination launchpadOut
   audioDestination     <- openDestination audioOut
+
+  initialFn            <- newIORef "21 + x + 8 * y"
 
   start launchpadSource
 
@@ -47,9 +50,9 @@ main = do
                , processB pause chanB state
                , processC chanC launchpadDestination
                , processD chanD state
-               , processE chanE audioDestination
+               , processE chanE audioDestination initialFn
                , processF chanF
-               , runGUI pause chanG chanH
+               , runGUI initialFn pause chanG chanH
                ]
 
   putStrLn "Hit ENTER to quit..."
@@ -91,8 +94,8 @@ processD chanD state = mapChanM_ chanD (updateFromMessage . getMessage)
   where
   updateFromMessage m = modifyIORef state (insert `uncurry` decodeMessage m)
 
-processE :: Chan MidiEvent -> Connection -> IO ()
-processE chanE audioDestination = mapChanM_ chanE (send audioDestination . audify . getMessage)
+processE :: Chan MidiEvent -> Connection -> IORef String -> IO ()
+processE chanE audioDestination fnText = mapChanM_ chanE (send audioDestination <=< audify fnText . getMessage)
 
 processF :: Chan MidiEvent -> IO ()
 processF chanF = mapChanM_ chanF print
@@ -153,10 +156,13 @@ mergeChans l = do
 mapChanM_ :: Chan a -> (a -> IO b) -> IO ()
 mapChanM_ chan f = getChanContents chan >>= mapM_ f
 
-audify :: MidiMessage -> MidiMessage
-audify m = message
-  where
-  i         = 21 + x * 2 + y * 5
-  ((x,y),b) = decodeMessage m
-  message   = case b of True  -> MidiMessage 1 (NoteOn  i 127)
-                        False -> MidiMessage 1 (NoteOff i 127)
+audify :: IORef String -> MidiMessage -> IO MidiMessage
+audify fnText m = do
+  text <- readIORef fnText
+  let
+    fn        = interpret text
+    i         = fn x y
+    ((x,y),b) = decodeMessage m
+    message   = case b of True  -> MidiMessage 1 (NoteOn  i 127)
+                          False -> MidiMessage 1 (NoteOff i 127)
+  return message
