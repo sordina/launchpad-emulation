@@ -136,9 +136,8 @@ lifeDelay = 200000
 -- Life
 --
 rules :: Bool -> Int -> Bool
-rules True  3 = True
 rules True  4 = True
-rules False 3 = True
+rules _     3 = True
 rules _     _ = False
 
 b2i :: Bool -> Int
