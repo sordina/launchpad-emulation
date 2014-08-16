@@ -7,7 +7,6 @@ import Prelude hiding (span, div)
 import Control.Concurrent
 import Text.InterpolatedString.Perl6 (q)
 import Graphics.UI.Threepenny hiding (coords, map)
-import Control.Monad.IO.Class
 import Control.Monad
 import Data.IORef
 
@@ -73,57 +72,61 @@ runGUI initialFn pause chanIn chanOut =
 titleText :: String
 titleText = "Launchpad Emulation"
 
-setup :: IORef String -> IORef Bool -> Chan Command -> Chan Command -> Window -> IO ()
+setup :: IORef String -> IORef Bool -> Chan Command -> Chan Command -> Window -> UI ()
 setup initialFn pause chanIn chanOut window = do
     set title titleText (return window)
     addCSS $ getHead window
     addH1 $ getBody window
     addControls initialFn pause chanOut (getBody window)
     cells <- addPad chanOut $ getBody window
-    forkIO $ getChanContents chanIn >>= mapM_ (updateCell cells)
-    return ()
+    liftIO (getChanContents chanIn) >>= mapM_ (updateCell cells) -- This may need to be forked somehow...
 
-addControls :: IORef String -> IORef Bool -> Chan Command -> IO Element -> IO ()
+addControls :: IORef String -> IORef Bool -> Chan Command -> UI Element -> UI ()
 addControls audioFnText pause chanOut parent = do
   let stopSymbol = " ◼  "
       playSymbol = " ▶ "
 
-  nextSymbol <- newIORef playSymbol
+  nextSymbol <- liftIO $ newIORef playSymbol
   box        <- h2 # set text stopSymbol
-  initialFn  <- readIORef audioFnText
+  initialFn  <- liftIO $ readIORef audioFnText
   myInput    <- input # set value initialFn
   parent #+ [ return box, return myInput ]
 
   on keyup myInput $ const $ do
     val <- get value myInput
-    writeIORef audioFnText val
+    liftIO $ writeIORef audioFnText val
 
   on click box $ const $ do
-    ns <- readIORef nextSymbol
-    if ns == stopSymbol
-      then writeIORef nextSymbol playSymbol >> writeIORef pause False
-      else writeIORef nextSymbol stopSymbol >> writeIORef pause True
+
+    ns <- liftIO $ readIORef nextSymbol
+
+    liftIO $
+      if ns == stopSymbol
+        then writeIORef nextSymbol playSymbol >> writeIORef pause False
+        else writeIORef nextSymbol stopSymbol >> writeIORef pause True
 
     return box # set text ns -- TODO: Set this on a hook from chan events, rather than manually
-    writeChan chanOut ((8,4),True)
-    putStrLn "Emulator: Pause button hit"
 
-addCSS :: IO Element -> IO Element
+    liftIO $ do
+      writeChan chanOut ((8,4),True)
+      putStrLn "Emulator: Pause button hit"
+
+addCSS :: UI Element -> UI Element
 addCSS = append [ mkElement "style" # set text css # set (attr "type") "text/css" ]
 
-addH1 :: IO Element -> IO Element
+addH1 :: UI Element -> UI Element
 addH1 = append [ h1 #+ [ string titleText ] ]
 
-addPad :: Chan Command -> IO Element -> IO [(Coord, Element)]
+addPad :: Chan Command -> UI Element -> UI [(Coord, Element)]
 addPad chanOut c = do
   cells <- mapM (cell chanOut) coords
   c #+ [ div #. "bar" #+ map return cells ]
   return (zip coords cells)
 
-cell :: Chan Command -> Coord -> IO Element
+cell :: Chan Command -> Coord -> UI Element
 cell chanOut coord = do
   item <- span
-  on click item (const $ respond chanOut coord)
+  on click item (const $ liftIO $ respond chanOut coord)
   return item
 
 respond :: Chan Command -> Coord -> IO ()
@@ -131,22 +134,22 @@ respond chanOut coord = do
   putStrLn $ "Emulator item clicked: " ++ show coord
   writeChan chanOut (coord,True)
 
-append :: [IO Element] -> IO Element -> IO Element
+append :: [UI Element] -> UI Element -> UI Element
 append = flip (#+)
 
 -- In place cell interaction
 --
-turnOff :: MonadIO m => m Element -> m Element
+turnOff :: UI Element -> UI Element
 turnOff e = e # set (attr "class") "off"
 
-turnOn :: MonadIO m => m Element -> m Element
+turnOn :: UI Element -> UI Element
 turnOn e = e # set (attr "class") "on"
 
-flick :: MonadIO m => Bool -> m Element -> m Element
+flick :: Bool -> UI Element -> UI Element
 flick True  = turnOn
 flick False = turnOff
 
-updateCell :: (Eq a, Functor f, MonadIO f) => [(a, Element)] -> (a, Bool) -> f ()
+updateCell :: Eq a => [(a, Element)] -> (a, Bool) -> UI ()
 updateCell cells (coord,b) = case lookup coord cells
   of Just c -> void (flick b (return c))
      _      -> return ()

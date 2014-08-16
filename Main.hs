@@ -20,9 +20,9 @@ mapChan f i = do
 
 main :: IO ()
 main = do
-  launchpadOut         <- selectOutputDevice (Just "Launchpad")
-  audioOut             <- selectOutputDevice (Just "Bus 1")
-  launchpadIn          <- selectInputDevice  (Just "Launchpad")
+  launchpadOut         <- selectOutputDevice "Launchpad Out"  (Just "Launchpad")
+  audioOut             <- selectOutputDevice "Output Bus"     (Just "Bus 1")
+  launchpadIn          <- selectInputDevice  "Launchpad In"   (Just "Launchpad")
 
   launchpadSource      <- openSource      launchpadIn  Nothing
   launchpadDestination <- openDestination launchpadOut
