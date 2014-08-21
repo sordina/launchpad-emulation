@@ -79,7 +79,8 @@ setup initialFn pause chanIn chanOut window = do
     addH1 $ getBody window
     addControls initialFn pause chanOut (getBody window)
     cells <- addPad chanOut $ getBody window
-    liftIO (getChanContents chanIn) >>= mapM_ (updateCell cells) -- This may need to be forked somehow...
+    -- void $ cellUpdateProcessor chanIn cells
+    void $ liftIO $ forkIO $ (getChanContents chanIn) >>= mapM_ (runUI window . updateCells cells)
 
 addControls :: IORef String -> IORef Bool -> Chan Command -> UI Element -> UI ()
 addControls audioFnText pause chanOut parent = do
@@ -149,7 +150,8 @@ flick :: Bool -> UI Element -> UI Element
 flick True  = turnOn
 flick False = turnOff
 
-updateCell :: Eq a => [(a, Element)] -> (a, Bool) -> UI ()
-updateCell cells (coord,b) = case lookup coord cells
-  of Just c -> void (flick b (return c))
-     _      -> return ()
+updateCells :: Eq a => [(a, Element)] -> (a, Bool) -> UI ()
+updateCells cells (coord,b) = do
+  case lookup coord cells
+    of Just c -> void (flick b (return c))
+       _      -> return ()
