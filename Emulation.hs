@@ -79,7 +79,6 @@ setup initialFn pause chanIn chanOut window = do
     addH1 $ getBody window
     addControls initialFn pause chanOut (getBody window)
     cells <- addPad chanOut $ getBody window
-    -- void $ cellUpdateProcessor chanIn cells
     void $ liftIO $ forkIO $ (getChanContents chanIn) >>= mapM_ (runUI window . updateCells cells)
 
 addControls :: IORef String -> IORef Bool -> Chan Command -> UI Element -> UI ()
