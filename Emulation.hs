@@ -1,56 +1,14 @@
-{-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS -fno-warn-unused-do-bind #-}
 
 module Emulation where
 
 import Prelude hiding (span, div)
 import Control.Concurrent
-import Text.InterpolatedString.Perl6 (q)
 import Graphics.UI.Threepenny hiding (coords, map)
 import Control.Monad
 import Data.IORef
-
 import Common
-
-css :: String
-css = [q|
-  body {
-    margin: 0;
-    padding: 0;
-  }
-  h1, h2 {
-    text-align: center;
-  }
-  h2 {
-    height: 50px;
-    font-size: 50px;
-    cursor: pointer;
-  }
-  input {
-    text-align: center;
-    width: 300px;
-    font-size: 200%;
-    display: block;
-    margin: 1em auto;
-  }
-  .bar {
-    width: 900px;
-    margin: 0 auto;
-    padding: 10px 0 0 10px;
-  }
-  .bar span {
-    display: inline-block;
-    margin: 0 10px 10px 0;
-    padding: 0px;
-    width: 98px;
-    height: 98px;
-    border: 1px solid black;
-    cursor: pointer;
-  }
-  .bar span.on {
-    background: #FA0;
-  }
-|]
+import CSS
 
 type Command = (Coord,Bool)
 
@@ -69,8 +27,10 @@ runGUI :: IORef String -> IORef Bool -> Chan Command -> Chan Command -> IO ()
 runGUI initialFn pause chanIn chanOut =
   startGUI defaultConfig (setup initialFn pause chanIn chanOut)
 
-titleText :: String
-titleText = "Launchpad Emulation"
+titleText, stopSymbol, playSymbol :: String
+titleText  = "Launchpad Emulation"
+stopSymbol = " ◼  "
+playSymbol = " ▶ "
 
 setup :: IORef String -> IORef Bool -> Chan Command -> Chan Command -> Window -> UI ()
 setup initialFn pause chanIn chanOut window = do
@@ -83,9 +43,6 @@ setup initialFn pause chanIn chanOut window = do
 
 addControls :: IORef String -> IORef Bool -> Chan Command -> UI Element -> UI ()
 addControls audioFnText pause chanOut parent = do
-  let stopSymbol = " ◼  "
-      playSymbol = " ▶ "
-
   nextSymbol <- liftIO $ newIORef playSymbol
   box        <- h2 # set text stopSymbol
   initialFn  <- liftIO $ readIORef audioFnText

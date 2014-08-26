@@ -35,24 +35,23 @@ main = do
   state <- newIORef empty
   pause <- newIORef False
 
-  chanH <- newChan
-  chanI <- mapChan (uncurry encodeEvent) chanH
+  guiEvents          <- newChan
+  encodedGuiEvents   <- mapChan (uncurry encodeEvent) guiEvents
+  launchpadEvents    <- newChan
+  lifeChangingEvents <- newChan
+  inputEvents        <- mergeChans [launchpadEvents, lifeChangingEvents, encodedGuiEvents]
+  chanD              <- dupChan inputEvents
+  chanE              <- dupChan chanD
+  chanF              <- dupChan chanE
+  chanG              <- dupChan chanF >>= mapChan decodeEvent
 
-  chanA <- newChan
-  chanB <- newChan
-  chanC <- mergeChans [chanA, chanB, chanI]
-  chanD <- dupChan chanC
-  chanE <- dupChan chanD
-  chanF <- dupChan chanE
-  chanG <- dupChan chanF >>= mapChan decodeEvent
-
-  mapM_ forkIO [ processA chanA launchpadSource
-               , processB pause chanB state
-               , processC chanC launchpadDestination
-               , processD chanD state
-               , processE chanE audioDestination initialFn
-               , processF chanF
-               , runGUI initialFn pause chanG chanH
+  mapM_ forkIO [ collectLaunchpadEvents launchpadEvents launchpadSource
+               , lifeSimulationProcess pause lifeChangingEvents state
+               , outputToLaunchpad inputEvents launchpadDestination
+               , reintegrateInputEvents chanD state
+               , outputSystemMidiBus chanE audioDestination initialFn
+               , outputDebuggingText chanF
+               , runGUI initialFn pause chanG guiEvents
                ]
 
   putStrLn "Hit ENTER to quit..."
@@ -63,20 +62,20 @@ main = do
   close launchpadDestination
   close audioDestination
 
-processA :: Chan MidiEvent -> Connection -> IO ()
-processA c s = do
+collectLaunchpadEvents :: Chan MidiEvent -> Connection -> IO ()
+collectLaunchpadEvents c s = do
   es <- getEvents s
   writeList2Chan c (filter isOnEvent es)
   threadDelay oneSplitSecond
-  processA c s
+  collectLaunchpadEvents c s
 
-processB :: IORef Bool -> Chan MidiEvent -> IORef State -> IO ()
-processB pause chanB state = do
+lifeSimulationProcess :: IORef Bool -> Chan MidiEvent -> IORef State -> IO ()
+lifeSimulationProcess pause lifeChangingEvents state = do
   paused <- readIORef pause
   previousState <- readIORef state
-  when (not paused) $ mapM_ (writeChan chanB) (coords >>= processB_cell previousState)
+  when (not paused) $ mapM_ (writeChan lifeChangingEvents) (coords >>= processB_cell previousState)
   threadDelay lifeDelay
-  processB pause chanB state
+  lifeSimulationProcess pause lifeChangingEvents state
 
 processB_cell :: State -> Coord -> [MidiEvent]
 processB_cell previousState coord@(x,y) = if nextState == b then [] else [encodeEvent coord nextState]
@@ -86,19 +85,19 @@ processB_cell previousState coord@(x,y) = if nextState == b then [] else [encode
   s             = sum $ map (b2i . fromMaybe False . flip lookup previousState) neighbourhood
   neighbourhood = [(mod (x+dx) limx , mod (y+dy) limy) | dx <- [-1..1], dy <- [-1..1]]
 
-processC :: Chan MidiEvent -> Connection -> IO ()
-processC chanC launchpadDestination = mapChanM_ chanC (send launchpadDestination . getMessage)
+outputToLaunchpad :: Chan MidiEvent -> Connection -> IO ()
+outputToLaunchpad inputEvents launchpadDestination = mapChanM_ inputEvents (send launchpadDestination . getMessage)
 
-processD :: Chan MidiEvent -> IORef State -> IO ()
-processD chanD state = mapChanM_ chanD (updateFromMessage . getMessage)
+reintegrateInputEvents :: Chan MidiEvent -> IORef State -> IO ()
+reintegrateInputEvents chanD state = mapChanM_ chanD (updateFromMessage . getMessage)
   where
   updateFromMessage m = modifyIORef state (insert `uncurry` decodeMessage m)
 
-processE :: Chan MidiEvent -> Connection -> IORef String -> IO ()
-processE chanE audioDestination fnText = mapChanM_ chanE (send audioDestination <=< audify fnText . getMessage)
+outputSystemMidiBus :: Chan MidiEvent -> Connection -> IORef String -> IO ()
+outputSystemMidiBus chanE audioDestination fnText = mapChanM_ chanE (send audioDestination <=< audify fnText . getMessage)
 
-processF :: Chan MidiEvent -> IO ()
-processF chanF = mapChanM_ chanF print
+outputDebuggingText :: Chan MidiEvent -> IO ()
+outputDebuggingText chanF = mapChanM_ chanF print
 
 -- Helpers
 
